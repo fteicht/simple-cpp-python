@@ -294,4 +294,6 @@ That's because of **Python's GIL** that acts like a mutex that forces to sequent
 
 - Python's GIL forces the outer C++ parallel loop to call each inner element in sequence
 - Not happening in pure Python because full python code parallelism is implemented using *multiprocessing* instead of *multithreading* (thus circumventing the GIL)
-- Solution: **call each inner Python function from a different Python process!**
+- Solution: **call each inner Python function from a different Python process!** (but each Python inner loop running in sequence as previously)
+
+Idea: **1 C++ thread <=> 1 Python process**
