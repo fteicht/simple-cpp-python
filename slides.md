@@ -19,6 +19,7 @@ class: invert -->
 - how to code in modern C++ as in Python
 - how to write efficient parallel code mixing C++ and Python by circumventing Python's GIL
 - how to unit-test C++ code
+- how to produce meaningful stack traces in case of segfaults (like stack trace exceptions in Java or Python)
 
 ---
 
