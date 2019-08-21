@@ -212,7 +212,7 @@ It will compile a python extension library called __simple_cpp_python.cpython-37
 
 ---
 
-# Exporting the C++ code to python (cont.)
+# Calling the C++ code from python
 
 In ```script.py```:
 ```python
@@ -236,7 +236,7 @@ full python result: 4.046217839811811 in 1.1679670810699463 seconds
 full c++ result: 4.046217839811809 in 0.008682012557983398 seconds
 exact result: 4.027339492125908
 ```
-On this example pure C++ is 134.53x faster than pure Python; both using a sequential inner loop and a parallel outer loop.
+On this example **pure C++ is 134.53x faster than pure Python**; both using a sequential inner loop and a parallel outer loop.
 
 ---
 
@@ -251,7 +251,7 @@ double cpp_outer_loop_gil(const std::function<double (const unsigned int&)>& xf,
     std::iota(v.begin(), v.end(), 0);
     std::transform(std::execution::par, v.begin(), v.end(), v.begin(), [&xf, &M](const auto& n){
         py::gil_scoped_acquire acquire;  // Acquire the GIL to prevent Python race conditions
-        return std::cos((n+1) * xf(M)) + std::sin((n+1) * xf(M));
+        return std::cos((n+1) * xf(M)) + std::sin((n+1) * xf(M));  // xf() calls a Python lambda
     });
     return std::reduce(std::execution::par, v.begin(), v.end(), 0.0, std::plus<>());
 }
@@ -259,7 +259,7 @@ double cpp_outer_loop_gil(const std::function<double (const unsigned int&)>& xf,
 
 ---
 
-# Exporting the C++ function to Python
+# Calling the C++ function from Python
 
 In ```script.py```:
 ```python
@@ -285,7 +285,7 @@ full c++ result: 4.046217839811811 in 0.009485006332397461 seconds
 mixed result: 4.046217839811811 in 4.09197211265564 seconds
 exact result: 4.027339492125908
 ```
-The mixed C++/Python code is 3.3x **slower** than the pure Python code! (and 431x slower than the pure C++ code)
+The mixed C++/Python code is **3.3x slower** than the pure Python code! (and 431x slower than the pure C++ code)
 That's because of **Python's GIL** that acts like a mutex that forces to sequentialize the C++ parallel loop...
 
 ---
@@ -297,3 +297,73 @@ That's because of **Python's GIL** that acts like a mutex that forces to sequent
 - Solution: **call each inner Python function from a different Python process!** (but each Python inner loop running in sequence as previously)
 
 Idea: **1 C++ thread <=> 1 Python process**
+
+---
+
+# C++ code calling concurrent python processes in parallel
+
+```cpp
+double cpp_outer_loop_process(const std::function<void (const unsigned int&, const unsigned int&)>& xg,
+                              const std::function<double (const unsigned int&)>& xf,
+                              const unsigned int& N, const unsigned int& M) {
+    py::gil_scoped_release release;
+    std::vector<double> v(N);
+    std::iota(v.begin(), v.end(), 0);
+    std::for_each(std::execution::par, v.begin(), v.end(), [&xg, &M](const auto& n){
+        py::gil_scoped_acquire acquire;
+        xg(n, M);  // Call to Python function that launches a detached process computing the inner loop
+    });
+    std::transform(std::execution::par, v.begin(), v.end(), v.begin(), [&xf](const auto& n){
+        py::gil_scoped_acquire acquire;
+        return std::cos((n+1) * xf(n)) + std::sin((n+1) * xf(n));  // xf(n) gets the result of xg(n, M)
+    });
+    return std::reduce(std::execution::par, v.begin(), v.end(), 0.0, std::plus<>());
+}
+```
+
+---
+
+# Calling the C++ function from Python
+
+```python
+def mixed_op(pool, lr, n, M):  # this our xg() viewed from C++
+    lr[n] = pool.apply_async(lambda : python_inner_loop(M))  # GIL freed after launch
+
+def mixed_get(lr, n):  # this our xf() viewed from C++
+    return lr[n].get()  # blocks the process until the result is ready
+
+if __name__ == "__main__":
+    start = time.time()
+    pool = multiprocessing.Pool()
+    lr = [None]*N  # lr[] saves the result of each detached process
+    r = wow.cpp_outer_loop_process(lambda n, M : mixed_op(pool, lr, n, M),
+                                   lambda n : mixed_get(lr, n), 1000, 10000)
+    end = time.time()
+    print('mixed result (process): ' + str(r) + ' in ' + str(end-start) + ' seconds')
+```
+<span style="font-size:70%">
+The GIL blocks the (only) main Python thread just to launch processes and to get their results.
+</span>
+
+---
+
+# Running the script
+
+```bash
+$ python script.py
+full python result: 4.046217839811811 in 1.1558029651641846 seconds
+full c++ result: 4.046217839811814 in 0.00848531723022461 seconds
+mixed result (GIL): 4.046217839811811 in 4.034562110900879 seconds
+mixed result (process): 4.046217839811811 in 0.6684191226959229 seconds
+exact result: 4.027339492125908
+```
+The mixed C++/Python process-based implementation is now **1.73x faster than the full parallel python** one (but still 78.77x slower than the full parallel C++ one...). Improvements expected to increase as inner Python code takes more CPU time.
+
+---
+
+# Performance analysis
+
+Speedup vs full (parallel) Python: the higher the better (log scale)
+
+| ![width:550px](comparison_M.png) | ![width:550px](comparison_N.png) |
+|---------------------------|---------------------------|

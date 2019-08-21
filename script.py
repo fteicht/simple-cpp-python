@@ -4,8 +4,11 @@ import math
 import operator
 import time
 import sys
+import matplotlib.pyplot as plt
 from pathos import multiprocessing
 from functools import reduce
+from collections import defaultdict
+from pandas import DataFrame
 
 def python_inner_loop(M):
     # computes pi/8 as a series
@@ -64,9 +67,99 @@ if __name__ == "__main__":
     pool = multiprocessing.Pool()
     lr = [None]*N
     r = wow.cpp_outer_loop_process(lambda n, M : mixed_op(pool, lr, n, M), lambda n : mixed_get(lr, n), N, 10*N)
+    pool.close()
     end = time.time()
     print('mixed result (process): ' + str(r) + ' in ' + str(end-start) + ' seconds')
 
     x = math.pi / 8
     r = 0.5 * ((1.0 / math.tan(x / 2)) - 1 + (math.sin(x * (N + 0.5)) - math.cos(x * (N + 0.5))) / math.sin(x / 2))
     print('exact result: ' + str(r))
+
+    # Statistical analysis
+    print('Statistic analysis...')
+
+    # N = 1000
+    # d = defaultdict(list)
+    # index = [100, 1000, 10000, 100000, 1000000]
+    
+    # for M in index:
+    #     print("N={0}, M={1}".format(N, M))
+
+    #     start = time.time()
+    #     full_python(N, M)
+    #     end = time.time()
+    #     ref = end - start
+    #     d['full_python'].append(1.0)
+    #     print('   full python:', str(end-start))
+
+    #     start = time.time()
+    #     wow.cpp_outer_loop_gil(lambda m: python_inner_loop(m), N, M)
+    #     end = time.time()
+    #     d['mixed_gil'].append(ref / (end - start))
+    #     print('   mixed gil:', str(end-start))
+
+    #     start = time.time()
+    #     pool = multiprocessing.Pool()
+    #     lr = [None]*N
+    #     wow.cpp_outer_loop_process(lambda n, m : mixed_op(pool, lr, n, m), lambda n : mixed_get(lr, n), N, M)
+    #     pool.close()
+    #     end = time.time()
+    #     d['mixed_process'].append(ref / (end - start))
+    #     print('   mixed process:', str(end-start))
+
+    #     start = time.time()
+    #     wow.full_cpp(N, M)
+    #     end = time.time()
+    #     d['full_cpp'].append(ref / (end - start))
+    #     print('   full cpp:', str(end-start))
+    
+    # df = DataFrame(data=d, index=index)
+    # df.plot.bar(rot=0, logy=True)
+    # plt.xlabel('M')
+    # plt.ylabel('(log) speedup compared to full python')
+    # plt.axhline(y=1, linewidth=3, color='gray', linestyle='dashed')
+    # plt.savefig('comparison_M.png', transparent=True)
+    # plt.show()
+
+    M = 10000
+    d = defaultdict(list)
+    index = [10, 100, 1000, 10000, 100000]
+    
+    for N in index:
+        print("N={0}, M={1}".format(N, M))
+
+        start = time.time()
+        full_python(N, M)
+        end = time.time()
+        ref = end - start
+        d['full_python'].append(1.0)
+        print('   full python:', str(end-start))
+
+        start = time.time()
+        wow.cpp_outer_loop_gil(lambda m: python_inner_loop(m), N, M)
+        end = time.time()
+        d['mixed_gil'].append(ref / (end - start))
+        print('   mixed gil:', str(end-start))
+
+        start = time.time()
+        pool = multiprocessing.Pool()
+        lr = [None]*N
+        wow.cpp_outer_loop_process(lambda n, m : mixed_op(pool, lr, n, m), lambda n : mixed_get(lr, n), N, M)
+        pool.close()
+        end = time.time()
+        d['mixed_process'].append(ref / (end - start))
+        print('   mixed process:', str(end-start))
+
+        start = time.time()
+        wow.full_cpp(N, M)
+        end = time.time()
+        d['full_cpp'].append(ref / (end - start))
+        print('   full cpp:', str(end-start))
+    
+    df = DataFrame(data=d, index=index)
+    df.plot.bar(rot=0, logy=True)
+    plt.xlabel('N')
+    plt.ylabel('(log) speedup compared to full python')
+    plt.axhline(y=1, linewidth=3, color='gray', linestyle='dashed')
+    plt.savefig('comparison_N.png', transparent=True)
+    plt.show()
