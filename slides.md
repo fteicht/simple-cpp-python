@@ -17,7 +17,8 @@ class: invert -->
 - how to configure a platform independent project mixing Python and C++ with [cmake](https://cmake.org) and [pybind11](https://github.com/pybind/pybind11)
 - how to call Python from C++ and vice versa
 - how to code in modern C++ as in Python
-- how to write efficient parallel code mixing C++ and Python by circumventing the GIL
+- how to write efficient parallel code mixing C++ and Python by circumventing Python's GIL
+- how to unit-test C++ code
 
 ---
 
@@ -59,10 +60,10 @@ SET(CMAKE_CXX_STANDARD_REQUIRED ON)
 FIND_PACKAGE(TBB REQUIRED)  # TBB required by GCC's implementation of C++-17
 FIND_PACKAGE(pybind11 REQUIRED)
 FIND_PACKAGE(Catch2 REQUIRED)
+FIND_PACKAGE(Backward)  # optional package
 
 PYBIND11_ADD_MODULE(__simple_cpp_python main.cc)
 TARGET_LINK_LIBRARIES(__simple_cpp_python PRIVATE ${TBB_IMPORTED_TARGETS})
-ADD_BACKWARD(__simple_cpp_python)
 ```
 
 ---
@@ -425,7 +426,7 @@ ExecutionModel is a generic type that must define Release and Acquire classes (e
 ```cpp
 struct CPPExecutionModel {
     struct Acquire {};
-    struct Release{};
+    struct Release {};
 };
 
 void cpp_xg(const unsigned int& n, const std::map<std::string, double>& m) {...};
@@ -459,3 +460,113 @@ PYBIND11_MODULE(__simple_cpp_python, m) {
 ```python
 r = export_cpp_outer_loop_process(lambda n, d: ..., lambda n: ..., N, my_dict)  # use with native python dict
 ```
+
+---
+
+# Unit-testing the C++ code
+
+Append the following lines to your ```CMakeLists.txt```:
+```cmake
+INCLUDE(CTest)
+INCLUDE(Catch)
+
+ADD_EXECUTABLE(test-cpp-inner-loop tests.cc)
+TARGET_INCLUDE_DIRECTORIES(test-cpp-inner-loop PRIVATE ${PYTHON_INCLUDE_DIRS})
+TARGET_LINK_LIBRARIES(test-cpp-inner-loop PRIVATE
+                          Catch2::Catch2 ${TBB_IMPORTED_TARGETS} ${PYTHON_LIBRARIES})
+CATCH_DISCOVER_TESTS(test-cpp-inner-loop)
+```
+It will add a unit test program called test-cpp-inner-loop.
+Catch2 takes care of automatically finding your unit tests in ```tests.cc```
+
+---
+
+# Unit-testing the C++ code (cont.)
+
+Contents of ```tests.cc```:
+```cpp
+#define CATCH_CONFIG_MAIN
+#include <catch2/catch.hpp>
+#include <cmath>
+#include "code.hh"
+
+TEST_CASE("Test the approximate computation of PI/8.0", "[PI computation]") {  // declare a new unit test
+    double r1 = cpp_inner_loop(10);
+    double r2 = cpp_inner_loop(100);
+    double r3 = cpp_inner_loop(1000);
+    double v = std::acos(-1.0) / 8.0;
+    REQUIRE( std::fabs(v - r1) < 1e-1 );
+    REQUIRE( std::fabs(v - r2) < 1e-3 );
+    REQUIRE( std::fabs(v - r3) < 1e-5 );
+}
+ ```
+<span style="font-size:65%">
+You can write scenario tests, check values or exceptions, write conditonal tests, and much more...
+</span>
+
+---
+
+# Unit test result
+
+```bash
+$ build/test-cpp-inner-loop
+test-cpp-inner-loop is a Catch v2.9.2 host application.
+Run with -? for options
+-------------------------------------------------------------------------------
+Test the approximate computation of PI/8.0
+-------------------------------------------------------------------------------
+/Users/teichteil_fl/Projects/simple-cpp-python/tests.cc:6
+...............................................................................
+/Users/teichteil_fl/Projects/simple-cpp-python/tests.cc:13: FAILED:
+  REQUIRE( std::fabs(v - r3) < 1e-5 )
+with expansion:
+  0.0000625 < 0.00001
+===============================================================================
+test cases: 1 | 1 failed
+assertions: 3 | 2 passed | 1 failed
+```
+
+---
+
+# Finally: replace segfault message by useful stack trace message
+
+Link your target against Backward libraries in ```CMakeLists.txt```, e.g.:
+```cmake
+TARGET_LINK_LIBRARIES(test-cpp-inner-loop PRIVATE Backward::Backward
+                          Catch2::Catch2 ${TBB_IMPORTED_TARGETS} ${PYTHON_LIBRARIES})
+```
+Add the following line at the top of your source file, e.g. in ```tests.cc```:
+```cpp
+include "backward.hpp"
+namespace backward { backward::SignalHandling sh; }
+```
+
+---
+
+# Replace segfault message by useful stack trace message
+
+Add a silly test that should produce a segfault (:warning: bad old school C++ coding style from the 90s on top of a silly bug!), e.g.:
+```cpp
+TEST_CASE("Stupid test to demonstrate Backward", "[backward]") {
+    int* v = nullptr;  // v is a null pointer
+    REQUIRE( v[0] == 0 );  // crash: Backward provides a stack trace 
+}
+```
+*Note: we put this intentional crash test in a unit test for simplicity but Backward can trace any C++ code of your project*
+
+---
+
+# Backward stack trace result
+
+Instead of an ungentle *sefgault* message we get a more informative trace (well, depend on the context) that helps debug your program:
+```bash
+Stack trace (most recent call last):
+#2    Object "libsystem_platform.dylib", at 0x7fff5932fb3c, in _sigtramp + 28
+#1    Object "test-cpp-inner-loop", at 0x10ae52478, in backward::SignalHandling::sig_handler(int, __siginfo*, void*) + 8
+#0    Object "test-cpp-inner-loop", at 0x10ae5207d, in backward::SignalHandling::handleSignal(int, __siginfo*, void*) + 77
+```
+Without Backward we would simply get a message like:
+```bash
+[1]    46461 segmentation fault  build/test-cpp-inner-loop
+```
+Note that Backward is nearly non-intrusive in your code.

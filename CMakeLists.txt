@@ -8,7 +8,29 @@ SET(CMAKE_CXX_STANDARD_REQUIRED ON)
 FIND_PACKAGE(TBB REQUIRED)  # TBB required by GCC's implementation of C++-17
 FIND_PACKAGE(pybind11 REQUIRED)
 FIND_PACKAGE(Catch2 REQUIRED)
+FIND_PACKAGE(Backward)
 
 PYBIND11_ADD_MODULE(__simple_cpp_python package.cc)
 TARGET_LINK_LIBRARIES(__simple_cpp_python PRIVATE ${TBB_IMPORTED_TARGETS})
-# ADD_BACKWARD(__simple_cpp_python)
+
+IF (TARGET Backward::Backward)
+    SET (BACKWARD_LIBS Backward::Backward)
+    SET (BACKWARD_INCLUDES ${BACKWARD_INCLUDE_DIRS})
+    SET (BACKWARD_DEFINITIONS ${BACKWARD_DEFITIONS} -DHAVE_BACKWARD)
+ELSE ()
+    SET (BACKWARD_LIBS "")
+    SET (BACKWARD_INCLUDES "")
+    SET (BACKWARD_DEFINITIONS "")
+ENDIF ()
+
+INCLUDE(CTest)
+INCLUDE(Catch)
+
+ADD_EXECUTABLE(test-cpp-inner-loop tests.cc)
+TARGET_INCLUDE_DIRECTORIES(test-cpp-inner-loop PRIVATE
+                               ${PYTHON_INCLUDE_DIRS} ${BACKWARD_INCLUDES})
+TARGET_LINK_LIBRARIES(test-cpp-inner-loop PRIVATE
+                          Catch2::Catch2 ${TBB_IMPORTED_TARGETS}
+                          ${PYTHON_LIBRARIES} ${BACKWARD_LIBS})
+TARGET_COMPILE_DEFINITIONS(test-cpp-inner-loop PRIVATE ${BACKWARD_DEFINITIONS})
+CATCH_DISCOVER_TESTS(test-cpp-inner-loop)
