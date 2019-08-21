@@ -78,48 +78,48 @@ if __name__ == "__main__":
     # Statistical analysis
     print('Statistic analysis...')
 
-    # N = 1000
-    # d = defaultdict(list)
-    # index = [100, 1000, 10000, 100000, 1000000]
+    N = 1000
+    d = defaultdict(list)
+    index = [100, 1000, 10000, 100000, 1000000]
     
-    # for M in index:
-    #     print("N={0}, M={1}".format(N, M))
+    for M in index:
+        print("N={0}, M={1}".format(N, M))
 
-    #     start = time.time()
-    #     full_python(N, M)
-    #     end = time.time()
-    #     ref = end - start
-    #     d['full_python'].append(1.0)
-    #     print('   full python:', str(end-start))
+        start = time.time()
+        full_python(N, M)
+        end = time.time()
+        ref = end - start
+        d['full_python'].append(1.0)
+        print('   full python:', str(end-start))
 
-    #     start = time.time()
-    #     wow.cpp_outer_loop_gil(lambda m: python_inner_loop(m), N, M)
-    #     end = time.time()
-    #     d['mixed_gil'].append(ref / (end - start))
-    #     print('   mixed gil:', str(end-start))
+        start = time.time()
+        wow.cpp_outer_loop_gil(lambda m: python_inner_loop(m), N, M)
+        end = time.time()
+        d['mixed_gil'].append(ref / (end - start))
+        print('   mixed gil:', str(end-start))
 
-    #     start = time.time()
-    #     pool = multiprocessing.Pool()
-    #     lr = [None]*N
-    #     wow.cpp_outer_loop_process(lambda n, m : mixed_op(pool, lr, n, m), lambda n : mixed_get(lr, n), N, M)
-    #     pool.close()
-    #     end = time.time()
-    #     d['mixed_process'].append(ref / (end - start))
-    #     print('   mixed process:', str(end-start))
+        start = time.time()
+        pool = multiprocessing.Pool()
+        lr = [None]*N
+        wow.cpp_outer_loop_process(lambda n, m : mixed_op(pool, lr, n, m), lambda n : mixed_get(lr, n), N, M)
+        pool.close()
+        end = time.time()
+        d['mixed_process'].append(ref / (end - start))
+        print('   mixed process:', str(end-start))
 
-    #     start = time.time()
-    #     wow.full_cpp(N, M)
-    #     end = time.time()
-    #     d['full_cpp'].append(ref / (end - start))
-    #     print('   full cpp:', str(end-start))
+        start = time.time()
+        wow.full_cpp(N, M)
+        end = time.time()
+        d['full_cpp'].append(ref / (end - start))
+        print('   full cpp:', str(end-start))
     
-    # df = DataFrame(data=d, index=index)
-    # df.plot.bar(rot=0, logy=True)
-    # plt.xlabel('M')
-    # plt.ylabel('(log) speedup compared to full python')
-    # plt.axhline(y=1, linewidth=3, color='gray', linestyle='dashed')
-    # plt.savefig('comparison_M.png', transparent=True)
-    # plt.show()
+    df = DataFrame(data=d, index=index)
+    df.plot.bar(rot=0, logy=True)
+    plt.xlabel('M')
+    plt.ylabel('(log) speedup compared to full python')
+    plt.axhline(y=1, linewidth=3, color='gray', linestyle='dashed')
+    plt.savefig('comparison_M.png', transparent=True)
+    plt.show()
 
     M = 10000
     d = defaultdict(list)
