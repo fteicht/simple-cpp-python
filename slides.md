@@ -367,3 +367,95 @@ Speedup vs full (parallel) Python: the higher the better (log scale)
 
 | ![width:550px](comparison_M.png) | ![width:550px](comparison_N.png) |
 |---------------------------|---------------------------|
+
+---
+
+# Using native python objects
+
+```cpp
+double cpp_outer_loop_process(const std::function<void (const unsigned int&, const py::dict&)>& xg,
+                              const std::function<double (const unsigned int&)>& xf,
+                              const unsigned int& N, const py::dict& d) {
+    py::gil_scoped_release release;
+    std::vector<double> v(N);
+    std::iota(v.begin(), v.end(), 0);
+    std::for_each(std::execution::par, v.begin(), v.end(), [&xg, &M](const auto& n){
+        py::gil_scoped_acquire acquire;
+        xg(n, d);  // Work with a native python dictionary d (no copy)
+    });
+    std::transform(std::execution::par, v.begin(), v.end(), v.begin(), [&xf](const auto& n){
+        py::gil_scoped_acquire acquire;
+        return std::cos((n+1) * xf(n)) + std::sin((n+1) * xf(n));  // xf(n) gets the result of xg(n, M)
+    });
+    return std::reduce(std::execution::par, v.begin(), v.end(), 0.0, std::plus<>());
+}
+```
+
+---
+
+# C++ templates: one generic outer loop for either Python or C++ inner loop
+
+```cpp
+template <typename ExecutionModel, typename InnerType>  // declare generic types
+double cpp_outer_loop_process(const std::function<void (const unsigned int&, const InnerType&)>& xg,
+                              const std::function<double (const unsigned int&)>& xf,
+                              const unsigned int& N, const InnerType& d, const ExecutionModel& em) {
+    typename ExecutionModel::Release release;  // py::gil_scoped_release if xg() is a Python lambda otherwise empty class
+    std::vector<double> v(N);
+    std::iota(v.begin(), v.end(), 0);
+    std::for_each(std::execution::par, v.begin(), v.end(), [&xg, &M](const auto& n){
+        typename ExecutionModel::Acquire acquire;  // py::gil_scoped_acquire if xg() is a Python lambda otherwise empty class
+        xg(n, d);  // d is a generic type (C++ type or e.g. python native type via pybind11)
+    });
+    std::transform(std::execution::par, v.begin(), v.end(), v.begin(), [&xf](const auto& n){
+        typename ExecutionModel::Acquire acquire;  // py::gil_scoped_acquire if xg() is a Python lambda otherwise empty class
+        return std::cos((n+1) * xf(n)) + std::sin((n+1) * xf(n));  // xf(n) gets the result of xg(n, M)
+    });
+    return std::reduce(std::execution::par, v.begin(), v.end(), 0.0, std::plus<>());
+}
+```
+<span style="font-size:60%">
+ExecutionModel is a generic type that must define Release and Acquire classes (empty in case of pure C++).
+</span>
+
+---
+
+# Using the generic C++ outer loop with C++ inner function (from C++)
+
+```cpp
+struct CPPExecutionModel {
+    struct Acquire {};
+    struct Release{};
+};
+
+void cpp_xg(const unsigned int& n, const std::map<std::string, double>& m) {...};
+double cpp_xf(const unsigned int& n) {...};
+unsigned int N = ...;
+std::map<std::string, double> m = ...;
+
+double r = cpp_outer_loop_process(cpp_xg, cpp_xf, N, m, CPPExecutionModel());
+```
+
+---
+
+# Using the generic C++ outer loop with Python inner function (from Python)
+
+```cpp
+struct PYExecutionModel {
+    typedef py::gil_scoped_acquire Acquire;
+    typedef py::gil_scoped_release Release;
+};
+
+double export_cpp_outer_loop_process(const std::function<void (const unsigned int&, const py::dict&)>& xg,
+                                     const std::function<double (const unsigned int&)>& xf,
+                                     const unsigned int& N, const py::dict& d) {
+    return cpp_outer_loop_process(xg, xf, N, d, PYExecutionModel());  // instantiate generic C++ outer loop function for Python
+}
+
+PYBIND11_MODULE(__simple_cpp_python, m) {
+    m.def("cpp_outer_loop_process", &export_cpp_outer_loop_process);  // Export the specialized function to Python
+}
+```
+```python
+r = export_cpp_outer_loop_process(lambda n, d: ..., lambda n: ..., N, my_dict)  # use with native python dict
+```
