@@ -65,7 +65,7 @@ FIND_PACKAGE(pybind11 REQUIRED)
 FIND_PACKAGE(Catch2 REQUIRED)
 FIND_PACKAGE(Backward)  # optional package
 
-PYBIND11_ADD_MODULE(__simple_cpp_python main.cc)
+PYBIND11_ADD_MODULE(__simple_cpp_python package.cc)
 TARGET_LINK_LIBRARIES(__simple_cpp_python PRIVATE ${TBB_IMPORTED_TARGETS})
 ```
 
@@ -89,7 +89,7 @@ You should now have a file under ```build``` called
 # Selecting different python interpreters
 
 In the previous slide, cmake via the pybind11 package (line
-```FIND_PACKAGE(pybind11 REQUIRED)``` in CMakeLists.txt) automatically selects the default python interpreter of my shell.
+```FIND_PACKAGE(pybind11 REQUIRED)``` in *CMakeLists.txt*) automatically selects the default python interpreter of my shell.
 
 To select a different python interpreter you need to configure with the following command:
 ```cmake -DPYTHON_EXECUTABLE="/path/to/my/python/interpreter" ..```
@@ -113,8 +113,8 @@ with $\theta = \frac{\pi}{8} = \sum_{k=0}^{+\infty} \frac{1}{(4k+1)(4k+3)}$
 <br>
 <span style="font-size:95%">
 Only to show:
-- the benefit of parallezing code mixing Python and C++
-- how to call python (inner loop) from C++ (outer loop)
+(1) the benefit of parallezing code mixing Python and C++
+(2) how to call python (inner loop) from C++ (outer loop)
 
 Outer loop (i.e. sum from $n=1$ to $N$) used to demonstrate parallelization (compute each element of the sum in parallel)
 
