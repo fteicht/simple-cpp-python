@@ -14,12 +14,12 @@ class: invert -->
 
 # We will show...
 
-- how to configure a platform independent project mixing Python and C++ with [cmake](https://cmake.org) and [pybind11](https://github.com/pybind/pybind11)
+- how to configure a platform-independent project mixing Python and C++ with [cmake](https://cmake.org) and [pybind11](https://github.com/pybind/pybind11)
 - how to call Python from C++ and vice versa
-- how to code in modern C++ as in Python
 - how to write efficient parallel code mixing C++ and Python by circumventing Python's GIL
 - how to unit-test C++ code
 - how to produce meaningful stack traces in case of segfaults (like stack trace exceptions in Java or Python)
+- how to setup a cmake-based mixed C++/Python library with setuptools (e.g. for installation with pip)
 
 ---
 
@@ -42,6 +42,8 @@ simple-cpp-python
     |-- package.cc       # export C++ functions to python
     |-- tests.cc         # C++ unit tests
     |-- script.py        # python code calling C++ code
+    |-- setup.py         # setuptools installation script
+    |-- __init__.py      # init script loading the compiled library
     |-- build            # created after project configuration (see next slide)
         |-- __simple_cpp_python.cpython-37m-darwin.so # C++ python extension
 ```
@@ -195,7 +197,7 @@ Note how std::transform() is called with std::execution::seq or std::execution::
 
 # Exporting the C++ code to python
 
-In ```package.cc```:
+In *package.cc*:
 ```cpp
 #include "code.hh"
 #include <pybind11/pybind11.h>
@@ -216,7 +218,7 @@ It will compile a python extension library called __simple_cpp_python.cpython-37
 
 # Calling the C++ code from python
 
-In ```script.py```:
+In *script.py*:
 ```python
 import build.__simple_cpp_python as wow
 
@@ -244,7 +246,7 @@ On this example **pure C++ is 134.53x faster than pure Python**; both using a se
 
 # Mixing C++ (outer loop) and Python (inner loop)
 
-In ```code.hh``` (```xf``` will be a Python lambda function when calling ```cpp_outer_loop_gil``` from Python):
+In *code.hh* (```xf``` will be a Python lambda function when calling ```cpp_outer_loop_gil``` from Python):
 ```
 double cpp_outer_loop_gil(const std::function<double (const unsigned int&)>& xf,
                           const unsigned int& N, const unsigned int& M) {
@@ -263,7 +265,7 @@ double cpp_outer_loop_gil(const std::function<double (const unsigned int&)>& xf,
 
 # Calling the C++ function from Python
 
-In ```script.py```:
+In *script.py*:
 ```python
 import build.__simple_cpp_python as wow
 
@@ -363,7 +365,7 @@ The mixed C++/Python process-based implementation is now **1.73x faster than the
 
 ---
 
-# Performance analysis
+# Performance analysis (with 4 cores)
 
 Speedup vs full (parallel) Python: the higher the better (log scale)
 
@@ -466,7 +468,7 @@ r = export_cpp_outer_loop_process(lambda n, d: ..., lambda n: ..., N, my_dict)  
 
 # Unit-testing the C++ code
 
-Append the following lines to your ```CMakeLists.txt```:
+Append the following lines to your *CMakeLists.txt*:
 ```cmake
 INCLUDE(CTest)
 INCLUDE(Catch)
@@ -478,13 +480,13 @@ TARGET_LINK_LIBRARIES(test-cpp-inner-loop PRIVATE
 CATCH_DISCOVER_TESTS(test-cpp-inner-loop)
 ```
 It will add a unit test program called test-cpp-inner-loop.
-Catch2 takes care of automatically finding your unit tests in ```tests.cc```
+Catch2 takes care of automatically finding your unit tests in *tests.cc*
 
 ---
 
 # Unit-testing the C++ code (cont.)
 
-Contents of ```tests.cc```:
+Contents of *tests.cc*:
 ```cpp
 #define CATCH_CONFIG_MAIN
 #include <catch2/catch.hpp>
@@ -531,12 +533,12 @@ assertions: 3 | 2 passed | 1 failed
 
 # Finally: replace segfault message by useful stack trace message
 
-Link your target against Backward libraries in ```CMakeLists.txt```, e.g.:
+Link your target against Backward libraries in *CMakeLists.txt*, e.g.:
 ```cmake
 TARGET_LINK_LIBRARIES(test-cpp-inner-loop PRIVATE Backward::Backward
                           Catch2::Catch2 ${TBB_IMPORTED_TARGETS} ${PYTHON_LIBRARIES})
 ```
-Add the following line at the top of your source file, e.g. in ```tests.cc```:
+Add the following line at the top of your source file, e.g. in *tests.cc*:
 ```cpp
 include "backward.hpp"
 namespace backward { backward::SignalHandling sh; }
@@ -571,3 +573,17 @@ Without Backward we would simply get a message like:
 [1]    46461 segmentation fault  build/test-cpp-inner-loop
 ```
 Note that Backward is nearly non-intrusive in your code.
+
+---
+
+# Setting-up an installation script with cmake and setuptools
+
+Look at *setup.py* (too large to be copied here) -> provides *CMakeExtension* and *CMakeBuild* classes
+In ```__init__.py```:
+```python
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.realpath(__file__)))
+import __simple_cpp_python as simple_cpp_python
+```
+That's it! Now you can ```pip install -e .``` and load ```simple_cpp_python```
