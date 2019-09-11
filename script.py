@@ -16,9 +16,9 @@ def python_inner_loop(M):
 
 def python_outer_loop(xf, N, M):
     # computes the series of cos(n * theta) + sin(n * theta)
-    pool = multiprocessing.Pool()
-    v = pool.map(lambda n: math.cos((n+1) * xf(M)) + math.sin((n+1) * xf(M)), [n for n in range(N)])
-    return reduce(operator.add, v, 0)
+    with multiprocessing.Pool() as pool:
+        v = pool.map(lambda n: math.cos((n+1) * xf(M)) + math.sin((n+1) * xf(M)), [n for n in range(N)])
+        return reduce(operator.add, v, 0)
 
 def full_python(N, M):
     return python_outer_loop(python_inner_loop, N, M)
@@ -64,10 +64,9 @@ if __name__ == "__main__":
     print('mixed result (GIL): ' + str(r) + ' in ' + str(end-start) + ' seconds')
 
     start = time.time()
-    pool = multiprocessing.Pool()
-    lr = [None]*N
-    r = wow.cpp_outer_loop_process(lambda n, M : mixed_op(pool, lr, n, M), lambda n : mixed_get(lr, n), N, 10*N)
-    pool.close()
+    with multiprocessing.Pool() as pool:
+        lr = [None]*N
+        r = wow.cpp_outer_loop_process(lambda n, M : mixed_op(pool, lr, n, M), lambda n : mixed_get(lr, n), N, 10*N)
     end = time.time()
     print('mixed result (process): ' + str(r) + ' in ' + str(end-start) + ' seconds')
 
@@ -99,10 +98,9 @@ if __name__ == "__main__":
         print('   mixed gil:', str(end-start))
 
         start = time.time()
-        pool = multiprocessing.Pool()
-        lr = [None]*N
-        wow.cpp_outer_loop_process(lambda n, m : mixed_op(pool, lr, n, m), lambda n : mixed_get(lr, n), N, M)
-        pool.close()
+        with multiprocessing.Pool() as pool:
+            lr = [None]*N
+            wow.cpp_outer_loop_process(lambda n, m : mixed_op(pool, lr, n, m), lambda n : mixed_get(lr, n), N, M)
         end = time.time()
         d['mixed_process'].append(ref / (end - start))
         print('   mixed process:', str(end-start))
@@ -142,10 +140,9 @@ if __name__ == "__main__":
         print('   mixed gil:', str(end-start))
 
         start = time.time()
-        pool = multiprocessing.Pool()
-        lr = [None]*N
-        wow.cpp_outer_loop_process(lambda n, m : mixed_op(pool, lr, n, m), lambda n : mixed_get(lr, n), N, M)
-        pool.close()
+        with multiprocessing.Pool() as pool:
+            lr = [None]*N
+            wow.cpp_outer_loop_process(lambda n, m : mixed_op(pool, lr, n, m), lambda n : mixed_get(lr, n), N, M)
         end = time.time()
         d['mixed_process'].append(ref / (end - start))
         print('   mixed process:', str(end-start))
