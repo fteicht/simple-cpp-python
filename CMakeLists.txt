@@ -1,36 +1,42 @@
-CMAKE_MINIMUM_REQUIRED(VERSION 3.10.2)
-PROJECT(simple_cpp_python)
+cmake_minimum_required(VERSION 3.10.2)
 
-ENABLE_LANGUAGE(CXX)
-SET(CMAKE_CXX_STANDARD 17)  # C++-17 required for high-level code parallelization
-SET(CMAKE_CXX_STANDARD_REQUIRED ON)
+# Set CMAKE_BUILD_TYPE to Release by default.
+# Must be done before calling project()
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the type of build, options are: None(CMAKE_CXX_FLAGS or CMAKE_C_FLAGS used) Debug Release RelWithDebInfo MinSizeRel." FORCE)
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "" Release Debug RelWithDebInfo MinSizeRel)
+endif()
 
-FIND_PACKAGE(TBB REQUIRED)  # TBB required by GCC's implementation of C++-17
-FIND_PACKAGE(pybind11 REQUIRED)
-FIND_PACKAGE(Catch2 REQUIRED)
-FIND_PACKAGE(Backward)
+project(simple_cpp_python
+        VERSION 0.1.0
+        DESCRIPTION "A minimal project showing how to configure and code a project mixing C++ and Python"
+        HOMEPAGE_URL "https://github.com/fteicht/simple-cpp-python/"
+        LANGUAGES CXX)
 
-PYBIND11_ADD_MODULE(__simple_cpp_python package.cc)
-TARGET_LINK_LIBRARIES(__simple_cpp_python PRIVATE ${TBB_IMPORTED_TARGETS})
+find_package(TBB REQUIRED)  # TBB required by GCC's implementation of C++-17
+find_package(pybind11 REQUIRED)
+find_package(Catch2 REQUIRED)
+find_package(Backward)
 
-IF (TARGET Backward::Backward)
-    SET (BACKWARD_LIBS Backward::Backward)
-    SET (BACKWARD_INCLUDES ${BACKWARD_INCLUDE_DIRS})
-    SET (BACKWARD_DEFINITIONS ${BACKWARD_DEFITIONS} -DHAVE_BACKWARD)
-ELSE ()
-    SET (BACKWARD_LIBS "")
-    SET (BACKWARD_INCLUDES "")
-    SET (BACKWARD_DEFINITIONS "")
-ENDIF ()
+# C++-17 required for high-level code parallelization.
+# Unfortunately pybind11 interferes with CMake; we cannot call
+# target_compile_features() as is done with test-cpp-inner-loop,
+# and have to set PYBIND11_CPP_STANDARD variable before calling
+# pybind11_add_module.  Ideally pybind11 should have an option
+# to not enforce C++14.
+set(PYBIND11_CPP_STANDARD --std=c++17)
+pybind11_add_module(__simple_cpp_python package.cc)
+target_link_libraries(__simple_cpp_python PRIVATE ${TBB_IMPORTED_TARGETS})
 
-INCLUDE(CTest)
-INCLUDE(Catch)
+include(CTest)
+include(Catch)
 
-ADD_EXECUTABLE(test-cpp-inner-loop tests.cc)
-TARGET_INCLUDE_DIRECTORIES(test-cpp-inner-loop PRIVATE
-                               ${PYTHON_INCLUDE_DIRS} ${BACKWARD_INCLUDES})
-TARGET_LINK_LIBRARIES(test-cpp-inner-loop PRIVATE
-                          Catch2::Catch2 ${TBB_IMPORTED_TARGETS}
-                          ${PYTHON_LIBRARIES} ${BACKWARD_LIBS})
-TARGET_COMPILE_DEFINITIONS(test-cpp-inner-loop PRIVATE ${BACKWARD_DEFINITIONS})
-CATCH_DISCOVER_TESTS(test-cpp-inner-loop)
+add_executable(test-cpp-inner-loop tests.cc)
+target_compile_features(test-cpp-inner-loop PRIVATE cxx_std_17)
+target_link_libraries(test-cpp-inner-loop PRIVATE
+                      Catch2::Catch2 pybind11::embed ${TBB_IMPORTED_TARGETS})
+if (TARGET Backward::Backward)
+    target_compile_definitions(test-cpp-inner-loop PRIVATE HAVE_BACKWARD)
+    target_link_libraries(test-cpp-inner-loop PRIVATE Backward::Backward)
+endif ()
+catch_discover_tests(test-cpp-inner-loop)
