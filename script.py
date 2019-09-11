@@ -4,27 +4,49 @@ import math
 import operator
 import time
 import sys
+import numpy as np
 import matplotlib.pyplot as plt
 from pathos import multiprocessing
 from functools import reduce
 from collections import defaultdict
 from pandas import DataFrame
+from concurrent.futures import ThreadPoolExecutor
 
 def python_inner_loop(M):
     # computes pi/8 as a series
     return reduce(operator.add, [1 / ((4*k + 1) * (4*k + 3)) for k in range(M)], 0)
 
-def python_outer_loop(xf, N, M):
+def python_inner_loop_numpy(M):
+    # computes pi/8 as a series
+    y = np.arange(M)
+    return np.sum(1. / ((4*y + 1)*(4*y + 3)))
+
+def python_outer_loop_mp(xf, N, M):
     # computes the series of cos(n * theta) + sin(n * theta)
-    pool = multiprocessing.Pool()
-    v = pool.map(lambda n: math.cos((n+1) * xf(M)) + math.sin((n+1) * xf(M)), [n for n in range(N)])
-    return reduce(operator.add, v, 0)
+    with multiprocessing.Pool() as pool:
+        v = pool.map(lambda n: math.cos((n+1) * xf(M)) + math.sin((n+1) * xf(M)), [n for n in range(N)])
+        return reduce(operator.add, v, 0)
+
+def python_outer_loop_mt(xf, N, M):
+    # computes the series of cos(n * theta) + sin(n * theta)
+    with ThreadPoolExecutor() as pool:
+        v = pool.map(lambda n: math.cos((n+1) * xf(M)) + math.sin((n+1) * xf(M)), range(N))
+        return reduce(operator.add, v, 0)
 
 def full_python(N, M):
-    return python_outer_loop(python_inner_loop, N, M)
+    return python_outer_loop_mp(python_inner_loop, N, M)
+
+def full_python_mt(N, M):
+    return python_outer_loop_mt(python_inner_loop, N, M)
+
+def full_python_mt_numpy(N, M):
+    return python_outer_loop_mt(python_inner_loop_numpy, N, M)
 
 def mixed_op(pool, lr, n, M):
     lr[n] = pool.apply_async(lambda : python_inner_loop(M))
+
+def mixed_op_numpy(pool, lr, n, M):
+    lr[n] = pool.apply_async(lambda : python_inner_loop_numpy(M))
 
 def mixed_get(lr, n):
     return lr[n].get()
@@ -59,17 +81,38 @@ if __name__ == "__main__":
     print('full c++ result: ' + str(r) + ' in ' + str(end-start) + ' seconds')
 
     start = time.time()
+    r = full_python_mt(N, 10*N)
+    end = time.time()
+    print('full python (mt): ' + str(r) + ' in ' + str(end-start) + ' seconds')
+
+    start = time.time()
+    r = full_python_mt_numpy(N, 10*N)
+    end = time.time()
+    print('full python (mt+Numpy): ' + str(r) + ' in ' + str(end-start) + ' seconds')
+
+    start = time.time()
     r = wow.cpp_outer_loop_gil(lambda M: python_inner_loop(M), N, 10*N)
     end = time.time()
     print('mixed result (GIL): ' + str(r) + ' in ' + str(end-start) + ' seconds')
 
     start = time.time()
-    pool = multiprocessing.Pool()
-    lr = [None]*N
-    r = wow.cpp_outer_loop_process(lambda n, M : mixed_op(pool, lr, n, M), lambda n : mixed_get(lr, n), N, 10*N)
-    pool.close()
+    with multiprocessing.Pool() as pool:
+        lr = [None]*N
+        r = wow.cpp_outer_loop_process(lambda n, M : mixed_op(pool, lr, n, M), lambda n : mixed_get(lr, n), N, 10*N)
     end = time.time()
     print('mixed result (process): ' + str(r) + ' in ' + str(end-start) + ' seconds')
+
+    start = time.time()
+    r = wow.cpp_outer_loop_gil(lambda M : python_inner_loop_numpy(M), N, 10*N)
+    end = time.time()
+    print('mixed result (GIL+Numpy): ' + str(r) + ' in ' + str(end-start) + ' seconds')
+
+    start = time.time()
+    with multiprocessing.Pool() as pool:
+        lr = [None]*N
+        r = wow.cpp_outer_loop_process(lambda n, M : mixed_op_numpy(pool, lr, n, M), lambda n : mixed_get(lr, n), N, 10*N)
+    end = time.time()
+    print('mixed result (process+Numpy): ' + str(r) + ' in ' + str(end-start) + ' seconds')
 
     x = math.pi / 8
     r = 0.5 * ((1.0 / math.tan(x / 2)) - 1 + (math.sin(x * (N + 0.5)) - math.cos(x * (N + 0.5))) / math.sin(x / 2))
@@ -93,19 +136,39 @@ if __name__ == "__main__":
         print('   full python:', str(end-start))
 
         start = time.time()
-        wow.cpp_outer_loop_gil(lambda m: python_inner_loop(m), N, M)
+        full_python_mt_numpy(N, M)
         end = time.time()
-        d['mixed_gil'].append(ref / (end - start))
-        print('   mixed gil:', str(end-start))
+        d['python_mt_numpy'].append(ref / (end - start))
+        print('   python mt+Numpy:', str(end-start))
+
+        ### Disabled, takes too much time
+        #start = time.time()
+        #wow.cpp_outer_loop_gil(lambda m: python_inner_loop(m), N, M)
+        #end = time.time()
+        #d['mixed_gil'].append(ref / (end - start))
+        #print('   mixed gil:', str(end-start))
 
         start = time.time()
-        pool = multiprocessing.Pool()
-        lr = [None]*N
-        wow.cpp_outer_loop_process(lambda n, m : mixed_op(pool, lr, n, m), lambda n : mixed_get(lr, n), N, M)
-        pool.close()
+        wow.cpp_outer_loop_gil(lambda M : python_inner_loop_numpy(M), N, M)
+        end = time.time()
+        d['mixed_gil_numpy'].append(ref / (end - start))
+        print('   mixed gil+Numpy: ', str(end-start))
+
+        start = time.time()
+        with multiprocessing.Pool() as pool:
+            lr = [None]*N
+            wow.cpp_outer_loop_process(lambda n, m : mixed_op(pool, lr, n, m), lambda n : mixed_get(lr, n), N, M)
         end = time.time()
         d['mixed_process'].append(ref / (end - start))
         print('   mixed process:', str(end-start))
+
+        start = time.time()
+        with multiprocessing.Pool() as pool:
+            lr = [None]*N
+            wow.cpp_outer_loop_process(lambda n, M : mixed_op_numpy(pool, lr, n, M), lambda n : mixed_get(lr, n), N, M)
+        end = time.time()
+        d['mixed_process_numpy'].append(ref / (end - start))
+        print('   mixed process+Numpy:', str(end-start))
 
         start = time.time()
         wow.full_cpp(N, M)
@@ -136,19 +199,39 @@ if __name__ == "__main__":
         print('   full python:', str(end-start))
 
         start = time.time()
-        wow.cpp_outer_loop_gil(lambda m: python_inner_loop(m), N, M)
+        full_python_mt_numpy(N, M)
         end = time.time()
-        d['mixed_gil'].append(ref / (end - start))
-        print('   mixed gil:', str(end-start))
+        d['python_mt_numpy'].append(ref / (end - start))
+        print('   python mt+Numpy:', str(end-start))
+
+        ### Disabled, takes too much time
+        #start = time.time()
+        #wow.cpp_outer_loop_gil(lambda m: python_inner_loop(m), N, M)
+        #end = time.time()
+        #d['mixed_gil'].append(ref / (end - start))
+        #print('   mixed gil:', str(end-start))
 
         start = time.time()
-        pool = multiprocessing.Pool()
-        lr = [None]*N
-        wow.cpp_outer_loop_process(lambda n, m : mixed_op(pool, lr, n, m), lambda n : mixed_get(lr, n), N, M)
-        pool.close()
+        wow.cpp_outer_loop_gil(lambda m : python_inner_loop_numpy(m), N, M)
+        end = time.time()
+        d['mixed_gil_numpy'].append(ref / (end - start))
+        print('   mixed gil+Numpy: ', str(end-start))
+
+        start = time.time()
+        with multiprocessing.Pool() as pool:
+            lr = [None]*N
+            wow.cpp_outer_loop_process(lambda n, m : mixed_op(pool, lr, n, m), lambda n : mixed_get(lr, n), N, M)
         end = time.time()
         d['mixed_process'].append(ref / (end - start))
         print('   mixed process:', str(end-start))
+
+        start = time.time()
+        with multiprocessing.Pool() as pool:
+            lr = [None]*N
+            wow.cpp_outer_loop_process(lambda n, m : mixed_op_numpy(pool, lr, n, m), lambda n : mixed_get(lr, n), N, M)
+        end = time.time()
+        d['mixed_process_numpy'].append(ref / (end - start))
+        print('   mixed process+Numpy:', str(end-start))
 
         start = time.time()
         wow.full_cpp(N, M)
